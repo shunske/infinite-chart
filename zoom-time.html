@@ -1,0 +1,229 @@
+<!doctype html>
+<html>
+
+<head>
+	<title>Line Chart</title>
+	<script src="https://code.jquery.com/jquery-3.3.1.min.js" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=" crossorigin="anonymous"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.13.0/moment.min.js"></script>
+	<script src="./Chart.js"></script>
+	<script src="./hammer.min.js"></script>
+	<script src="./chartjs-plugin-zoom.js"></script>
+	<style>
+	canvas {
+		-moz-user-select: none;
+		-webkit-user-select: none;
+		-ms-user-select: none;
+	}
+	</style>
+</head>
+
+<body>
+	<div style="width:75%;">
+		<button onclick="resetZoom()">Reset Zoom</button>
+		<canvas id="canvas"></canvas>
+	</div>
+
+</body>
+<script>
+	var timeFormat = 'MM/DD/YYYY HH:mm';
+
+	var loading = false;
+
+	function randomScalingFactor() {
+		return Math.round(Math.random() * 100 * (Math.random() > 0.5 ? -1 : 1));
+	}
+
+	function randomColorFactor() {
+		return Math.round(Math.random() * 255);
+	}
+
+	function randomColor(opacity) {
+		return 'rgba(' + randomColorFactor() + ',' + randomColorFactor() + ',' + randomColorFactor() + ',' + (opacity || '.3') + ')';
+	}
+
+	function newDate(days) {
+		return moment().add(days, 'd').toDate();
+	}
+
+	function newDateString(days) {
+		return moment().add(days, 'd').format(timeFormat);
+	}
+
+	function newTimestamp(days) {
+		return moment().add(days, 'd').unix();
+	}
+
+	function resetZoom() {
+		window.myLine.resetZoom()
+	}
+
+	function refreshChart() { 
+		var charMeta = window.myLine.getDatasetMeta(0).data
+		var len = charMeta.length
+		var beginPos = charMeta[0]._view.x
+		var endPos = charMeta[len - 1]._view.x
+		var chartData = window.myLine.data.datasets[0].data
+		
+		if(endPos < window.myLine.chartArea.right){
+			console.log('チャートの末尾に到達')
+
+			var len = chartData.length
+			var currentEnd = chartData[len - 1].t
+			var	nextStart = moment(currentEnd).add(1, 'd').format('YYYY-MM-DD')
+			var nextEnd = moment(nextStart).add(1, 'M').format('YYYY-MM-DD')
+
+			fetchNewData(nextStart, nextEnd, addDateToEnd)
+
+			var len = charMeta.length
+			for (let i = 0; i < len - 1; i++) {
+				var pos = charMeta[i]._view.x
+				if (pos > window.myLine.chartArea.left) break
+				chartData.shift()
+				console.log(moment(chartData[i].t).format('YYYY-MM-DD') + 'を削除')
+			}
+			
+		} else if(beginPos > window.myLine.chartArea.left){
+			console.log('チャートの先頭に到達')
+
+			var len = chartData.length
+			var currentStart = chartData[0].t
+			var	nextEnd = moment(currentStart).subtract(1, 'd').format('YYYY-MM-DD')
+			var nextStart = moment(nextEnd).subtract(1, 'M').format('YYYY-MM-DD')
+			
+			fetchNewData(nextStart, nextEnd, addDateToBegin)
+
+			var len = charMeta.length
+			for (let i = 0; i < len - 1; i++) {
+				var pos = charMeta[len - i - 1]._view.x
+				if (pos < window.myLine.chartArea.right) break
+				chartData.pop()
+				console.log(moment(chartData[i].t).format('YYYY-MM-DD') + 'を削除')
+			}
+		}
+
+
+		window.myLine.update()
+	}
+
+
+	function addDateToEnd(chartData) {
+		for (let i = 0; i < chartData.length - 1; i++) {
+			window.myLine.data.datasets[0].data.push(chartData[i]);
+		}
+		window.myLine.update()
+	}
+
+	function addDateToBegin(chartData) {
+		for (let i = 0; i < chartData.length - 1; i++) {
+			window.myLine.data.datasets[0].data.unshift(chartData[chartData.length -i - 1]);
+		}
+		window.myLine.update()
+	}
+
+
+	function fetchNewData(startDate, endDate, callback) {
+		if(loading) return
+		loading = true
+
+		var url = 'https://www.quandl.com/api/v3/datasets/PERTH/USD_JPY_D.json'
+				+ '?order=asc'
+				+ '&api_key=SYdbXdnxAQugSxcKA2QB'
+				+ '&start_date=' + startDate
+				+ '&end_date=' + endDate
+
+		$.ajax({	
+			url: url, 
+			type:"GET",
+			dataType:"json", 
+
+			}).done(function(json) {
+				var data = json.dataset.data;
+				var chartData = []
+				for (let i = 0; i < data.length - 1; i++) {
+					chartData.push({
+						t: moment(data[i][0]).toDate(),
+						y: data[i][1]
+					});
+				}
+				callback(chartData);
+
+			}).fail(function() {
+				console.log('fetch error');
+			}).always(function() {
+				loading = false
+			})
+	}
+
+	var config = {
+		type: 'line',
+		data: {
+			datasets: [{
+				label: "USD/JPY",
+				data: []
+			}]
+		},
+		options: {
+			responsive: true,
+			title:{
+				display:true,
+				text:"Chart.js Time Scale"
+			},
+			scales: {
+				xAxes: [{
+					type: "time",
+					time: {
+						format: timeFormat,
+						round: 'day'
+						//tooltipFormat: 'll HH:mm'
+					},
+					scaleLabel: {
+						display: true,
+						labelString: 'Date'
+					},
+					ticks: {
+						maxRotation: 0
+					}
+				}, ],
+				yAxes: [{
+					scaleLabel: {
+						display: true,
+						labelString: 'value'
+					}
+				}]
+			},
+			zoom: {
+				enabled: true,
+				//drag: false,
+				mode: 'x',
+				limits: {
+					max: 10,
+					min: 0.5
+				}
+				
+			},
+			pan: {
+				enabled: true,
+				mode: 'x',
+				onPan: refreshChart
+		   },
+		}
+	};
+
+	config.data.datasets.forEach(function(dataset) {
+		dataset.borderColor = randomColor(0.4);
+		dataset.backgroundColor = randomColor(0.5);
+		dataset.pointBorderColor = randomColor(0.7);
+		dataset.pointBackgroundColor = randomColor(0.5);
+		dataset.pointBorderWidth = 1;
+	});
+
+	window.onload = function() {
+		var ctx = document.getElementById("canvas").getContext("2d");
+		window.myLine = new Chart(ctx, config);
+
+		fetchNewData('2000-01-01', '2000-06-01', addDateToEnd)
+		
+
+	};
+</script>
+</html>
